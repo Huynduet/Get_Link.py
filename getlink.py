@@ -1,16 +1,15 @@
-from PIL import Image                   
-import thread 	#multithread
-import requests	#requests.Session - cookie - get - post
-import re 		#regex
-import time		#sleep
-import psutil	#kill process
-import ast 		#convert response string to dict
-import os		#remove file
+import ast 			#convert response string to dict
+import re 			#regex
+import requests		#requests.Session - cookie - get - post
+import threading 	#multithread
+import time			#sleep
 
 import _support	#my function
+
+
 class Phimmoi(object):
 	"""docstring for Phimmoi"""
-	maxThread = 30
+	__maxThread = 50
 	
 	def __init__(self, url):
 		match = re.search('phimmoi\.net/phim/(.+)-\d+(/.*?$)', url)
@@ -22,7 +21,8 @@ class Phimmoi(object):
 
 		self.__url = url
 		self.__listsFilms = []
-		self.__cookies = ''
+		self.__result = []
+		self.__cookies = {}
 		self.__countThread = 0
 
 	#error : return ''
@@ -41,10 +41,10 @@ class Phimmoi(object):
 				print 'get_link_phimmoi: index out of range (', id , ')'
 				return ''
 		elif 'phimmoi.net/phim/' in id:
-				url = id 
+			url = id 
 		else:
-				print 'get_link_phimmoi: URL wrong!'
-				return ''
+			print 'get_link_phimmoi: URL wrong!'
+			return ''
 	
 
 		cookies = self.__cookies
@@ -67,36 +67,78 @@ class Phimmoi(object):
 		links = ast.literal_eval(response)['links']
 
 		if mode == 'highest':
-			return links[-1]['url'].replace('\\', '')
-		if isinstance(mode, int) and mode >= 360:
+			ret = links[-1]['url'].replace('\\', '')
+		elif isinstance(mode, int) and mode >= 360:
 			for link in reversed(links):
 				if link['resolution'] <= mode:
-					return link['url'].replace('\\', '')
+					ret = link['url'].replace('\\', '')
+					break
+		else:
+			#else, return array
+			ret = [''] * 7
+			match = re.search('PhimMoi.Net---Tap\.(.*?)-',response)
+			if match:
+				ret[0] = match.group(1) 
+			ret[1] = 'Vietsub' if '-Vietsub-' in response else 'ThuyetMinh'
 
-		#else, return array
-		ret = [''] * 7
-		match = re.search('PhimMoi.Net---Tap\.(.*?)-',response)
-		if match:
-			ret[0] = match.group(1) 
-		ret[1] = 'Vietsub' if '-Vietsub-' in response else 'ThuyetMinh'
+			for link in links:
+				resolution = link['resolution']
+				url = link['url'].replace('\\', '')
 
-		for link in links:
-			resolution = link['resolution']
-			url = link['url'].replace('\\', '')
+				index = 2
+				if resolution >= 1080:
+					index = 5
+				elif resolution >= 720:
+					index = 4
+				elif resolution >= 480:
+					index = 3		
 
-			index = 2
-			if resolution >= 1080:
-				index = 5
-			elif resolution >= 720:
-				index = 4
-			elif resolution >= 480:
-				index = 3		
-
-			ret[index] = url
-			#highest resolution
-			ret[6] = url
+				ret[index] = url
+				#highest resolution
+				ret[6] = url
+		threadName = threading.currentThread().name
+		#get_all_links: multithread
+		if threadName != 'MainThread':	
+			try:		
+				index = int(threadName)
+			except:
+				pass
+			else:
+				if 0 <= index < len(self.__result):
+					self.__result[index] = ret
 
 		return ret
+
+	#mode: see get_link
+	def get_all_links(self, mode='arrar'):
+		if not self.__listsFilms:
+			if not self.get_list_films():
+				return ''
+
+		episodes = self.__listsFilms if self.__listsFilms else self.get_list_films()
+		if not episodes:
+			return ''
+
+		self.__result = [''] * ( len(episodes) + 1 )
+		if not mode == 'highest' and not isinstance(mode, int):
+			self.__result[0] = [''] * 7
+			# self.__result[0][0] = 'Server' if '<th>Server<' in source else 'Episode'
+			self.__result[0][0] = 'Episode'
+			self.__result[0][1] = 'Language'
+			self.__result[0][2] = '360'
+			self.__result[0][3] = '480'
+			self.__result[0][4] = '720'
+			self.__result[0][5] = '1080'		
+		
+		for x in xrange(0,len(episodes)):
+			#check max thread
+			while threading.activeCount() >= self.__maxThread:
+				time.sleep(0.1)
+
+			threading.Thread(target=self.get_link, name=x+1, args=(episodes[x],mode,)).start()
+
+		return self.__result
+	#return and set self.__listsFilms = list all film in page download	
 	def get_list_films(self):
 		session = requests.session()
 
@@ -122,21 +164,20 @@ class Phimmoi(object):
 			return ''
 		capcharURL = 'http://www.phimmoi.net/' + match.group(0)
 		
-		
+		capcharPath = 'capchar.jpeg'
 		while 1:
-			_support.download_file(capcharURL, 'capchar', session)
-			#show capchar
-			img = Image.open('capchar')
-			img.show() 
+			capcharPath = _support.download_file(capcharURL, capcharPath, session)
+			if not capcharPath:
+				print 'get_link_phimmoi: Download image capchar ERROR'
+				return ''
 
+			#show capchar
+			_support.show_image(capcharPath)
 			capchar = raw_input('Enter capchar: ')	
 
 			#close image show window
-			for proc in psutil.process_iter():
-			    if proc.name() == "display":
-			        proc.kill()
-			        # os.remove('capchar')
-
+			_support.kill_process('display')
+			
 			#get list
 			urlDownloadList += '?_fxAjax=1&_fxResponseType=JSON&_fxToken=' + token
 
@@ -149,50 +190,18 @@ class Phimmoi(object):
 				for x in xrange(0,len(episodes)):
 				 	episodes[x] = 'http://www.phimmoi.net/' + episodes[x].replace('\\', '')
 
-				os.remove('capchar')
+				_support.remove(capcharPath)
+			
 				self.__cookies = session.cookies
 				self.__listsFilms = episodes
 				return episodes
 
+	
 
-	def get_all_links(self):
-
-		episodes = self.__listsFilms if self.__listsFilms else self.get_list_films()
-		# for episode in episodes:
-		self.__result = [''] * ( len(episodes) + 1 )
-		self.__result[0] = [''] * 7
-		# self.__result[0][0] = 'Server' if '<th>Server<' in source else 'Episode'
-		self.__result[0][0] = 'Episode'
-		self.__result[0][1] = 'Language'
-		self.__result[0][2] = '360'
-		self.__result[0][3] = '480'
-		self.__result[0][4] = '720'
-		self.__result[0][5] = '1080'		
-		
-		for x in xrange(0,len(episodes)):
-			#check max thread
-			#while self.__countThread >= self.maxThread:
-			# 	time.sleep(0.2)
-
-			thread.start_new_thread(self.thread_get_raw_link, (episodes[x],x+1,))
-			time.sleep(0.1)
-
-		#wait for done
-		while self.__countThread:
-			time.sleep(1)
-
-		return self.__result
-
-	def thread_get_raw_link(self, url, episode):
-		self.__countThread += 1
-
-		self.__result[episode] = self.get_link(url)
-		self.__countThread -= 1
-
-# download_file('http://effbot.org/zone/thread-synchronization.htm','aa','a:a')
 Phim = Phimmoi('http://www.phimmoi.net/phim/dao-hai-tac-665/')
 # Phim.get_list_films()
 data = Phim.get_all_links()
-_support.write_file_csv(data, Phim.name)
+_support.write_file_csv(data, 's')
+print data
 # write_file_csv(data, 'data.csv')
 

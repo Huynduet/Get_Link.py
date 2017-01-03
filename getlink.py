@@ -18,6 +18,38 @@ def main():
 	# print get_list_phimmoi("http://www.phimmoi.net/phim/phi-dao-huu-kien-phi-dao-4620/xem-phim.html")
 
 
+# auto detect host
+# if 0<= startEp <= endEp: return array list
+def get_links(url, quality='all', startEp=1, endEp = 0):
+	match = re.search('://(www\.)?(.+)\..*?/', url)
+	if not match:
+		return _support.show_error('URL wrong!!')
+
+	match = re.findall('(\w)', match.group(2))
+	funcGetLink = 'get_link_' + ''.join(match)
+	funcGetList = 'get_list_' + ''.join(match)
+
+	if not funcGetLink in globals() or not funcGetList in globals():
+		print funcGetLink, funcGetList
+		return _support.show_error('Unknow domain!')
+
+	#check get list
+	if isinstance(startEp, int) and isinstance(endEp, int) and 0<= startEp <= endEp:
+		listsFilms = eval(funcGetList)(url)
+		ret = []
+		for filmInfo in listsFilms:
+			if not isinstance(filmInfo, dict):
+				continue
+			key = filmInfo.keys()[0]
+			Ep = re.search('(\d+)', key)
+			if Ep and int(Ep.group(1)) in xrange(startEp, endEp + 1):
+				url = filmInfo[key]
+				ret.append(eval(funcGetLink)(url, quality))
+
+		return ret
+	return eval(funcGetLink)(url, quality)
+
+
 def get_link_anime47(url, quality='all'):
 	if not 'anime47.com/xem-phim' in url:
 		print 'get_link_anime47: URL ERROR!'

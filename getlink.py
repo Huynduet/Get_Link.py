@@ -3,6 +3,7 @@ import re 			#regex
 import requests		#requests.Session - cookie - get - post
 import time			#sleep
 import threading 	#multithread
+import multiprocessing
 
 import _support	#my function
 
@@ -11,12 +12,48 @@ __maxThread = 50 		#for multithread
 
 
 def main():
-	print get_list_anime47('http://anime47.com/xem-phim-ngoan-tay-du-ep-01/140640.html')
+
+	link1 = 'http://anime47.com/xem-phim-one-piece-dao-hai-tac-ep-001/76748.html'
+	link2 = 'http://www.phimmoi.net/phim/dao-hai-tac-665/xem-phim.html'
+
+	# lists1 = get_list_anime47(link1)
+	# for k in lists1:
+	# 	print k
+	# return
+	url = get_links(link1, -1, 101,150)
+	# print url 
+	# # print get_link_anime47('http://anime47.com/xem-phim-one-piece-dao-hai-tac-ep-046/76793.html')
+	# return
+	if isinstance(url, str):
+		print url
+	elif  isinstance(url, dict):
+		for u in url:
+			print url[u]
+	else:
+		for u in url:
+			print u
+
+	# lists = get_list_anime47('http://anime47.com/xem-phim-ngoan-tay-du-ep-01/140640.html')
+	# print get_list_anime47('http://anime47.com/xem-phim-ngoan-tay-du-ep-01/140640.html')
 	# if l:
 	# 	for link in l[0]:
 	# 		print get_link_anime47(link,-1)
 	# print get_list_phimmoi("http://www.phimmoi.net/phim/phi-dao-huu-kien-phi-dao-4620/xem-phim.html")
 
+	# def say_hello(name):
+ #    	print 'Hello!'.format(name)
+
+	# # get the function by name
+	# method_name = 'say_hello'
+	# method = eval(method_name)
+
+	# # call it like a regular function later
+	# args = ['friend']
+	# kwargs = {}
+	# print eval('get_links')('http://anime47.com/xem-phim-ngoan-tay-du-ep-01/140640.html', 480)
+	# print globals()
+	# print get_links('http://tv.zing.vn/')
+	# print get_links('http://anime47.vn/')
 
 # auto detect host
 # if 0<= startEp <= endEp: return array list
@@ -50,28 +87,32 @@ def get_links(url, quality='all', startEp=1, endEp = 0):
 	return eval(funcGetLink)(url, quality)
 
 
+
 def get_link_anime47(url, quality='all'):
 	if not 'anime47.com/xem-phim' in url:
 		print 'get_link_anime47: URL ERROR!'
 		return ''
-	session = requests.session()
 
+	session = requests.session()
 	source = session.get(url).text
 
 	match = re.search('\{link:"https://drive.google.com/(.*?)"', source)
 	if not match:
 		print 'get_link_anime47: Get info ERROR'
 		return ''
-	data = {'link' : 'https://drive.google.com/' + match.group(1) }
 
+	data = {'link' : 'https://drive.google.com/' + match.group(1) }
 	response = session.post('http://anime47.com/player/gkphp/plugins/gkpluginsphp.php', data=data).text
 	if '"link":"https' in response:
 		# print response
+		title = re.search('anime47.com/xem-phim-(.*?)/', url).group(1).replace('-', '_')
 		response = response.replace('\\','').replace('true','True')
 		links = ast.literal_eval(response)['link']
-		return _support.get_url(links, keyQuality='label', keyUrl='link', quality=quality)
 
-	
+		opt = {'title':title, 'quality':quality}
+		return _support.get_url(links, keyQuality='label', keyUrl='link', option=opt) 
+
+#reuturn [ {Ep : URL}]
 def get_list_anime47(url):
 	if not 'anime47.com/' in url:
 		print 'get_link_anime47: URL ERROR!'
@@ -105,7 +146,7 @@ def get_list_anime47(url):
 
 
 
-def get_link_phimmoi(urls, quality='all'):
+def get_link_phimmoi(url, quality='all'):
 	#valid url
 	if not re.search('phimmoi\.net/phim/(.+)-\d+(/.*?$)', url):
 		print 'get_link_phimmoi: URL wrong!'
@@ -113,12 +154,15 @@ def get_link_phimmoi(urls, quality='all'):
 
 	session = requests.session()
 	source = session.get(url).text
-	match = re.search('episodeinfo-v1\.1\.php.*?episodeid=(.*?)\&.*?"', source)
+	match = re.search('episodeinfo-v1\.1\.php.*?episodeid=(.*?)\&number=(.*?)\&.*?\&filmslug=phim/(.+)-\d+/.*?"', source)
 	if not match:
 		print 'get_link_phimmoi: URL wrong!'
 		return ''
 
 	urlStream = 'http://www.phimmoi.net/' + match.group(0)
+	ep = match.group(2)
+	ep = '0' * (4 - len(ep)) + ep
+	title = match.group(3).replace('-', '_') + '_ep' + ep
 	aesKey = 'PhimMoi.Net://' + match.group(1)
 	source = session.get(urlStream).text
 
@@ -128,7 +172,9 @@ def get_link_phimmoi(urls, quality='all'):
 		return ''
 
 	links = ast.literal_eval(match.group(1))
-	urls = _support.get_url(links, keyQuality='resolution', keyUrl='url', quality=quality)
+	opt = {'title':title, 'quality' : quality, 'funcDecryptUrl':'aes_cbc_decrypt', 'keyDecryptUrl':aesKey}
+	urls = _support.get_url(links, keyQuality='resolution', keyUrl='url', option=opt)
+	return urls 
 
 	if (isinstance(urls, dict)):
 		ret = {}
@@ -137,7 +183,7 @@ def get_link_phimmoi(urls, quality='all'):
 		return ret
 	return _support.aes_cbc_decrypt(urls, aesKey)
 
-
+#reuturn [ {Ep : URL}]
 def get_list_phimmoi(url):
 	
 	if not re.search('phimmoi\.net/phim/(.+)-\d+(/.*?$)', url):
@@ -201,7 +247,7 @@ class Phimmoi(object):
 		self.__countThread = 0
 
 	#error : return ''
-	#mode = 'highest': return LinkHighestResolution
+	#mode2: return LinkHighestResolution
 	#mode = 360/480/720/1080 return Link_Mode_Resolution (Mode <= mode)
 	#mode = else: return array [Episode, Language, Link360p, Link480p, Link720p, Link1080p, LinkHighestResolution]
 	def get_link(self, id, mode=''):
@@ -371,6 +417,7 @@ class Phimmoi(object):
 				self.__listsFilms = episodes
 				return episodes
 
-	
+
+
 if __name__ == '__main__':
     main()

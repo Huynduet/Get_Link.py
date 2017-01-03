@@ -4,17 +4,18 @@ import re 			#regex
 import requests		#HTTP requests
 import psutil		#kill process
 import base64, md5
+import urllib
 from Crypto.Cipher import AES
 
 def main():
 	# a = [{"resolution":360,"type":"mp4","width":640,"height":360,"url":"url360"},{"resolution":480,"type":"mp4","width":854,"height":480,"url":"url480"}]
 	# print get_url(a, keyQuality='resolution', keyUrl='url', quality=-1)
 
-	passwd = "PhimMoi.Net://109892"
-	string = open('str').read()
+	passwd = "phimbathu.com1451"
+	string = open('b.txt').read()
 	# string = 'U2FsdGVkX1+\/Q3KwuDkL4ZvuvF6xdaHmS97sbgXEzxu\/9BEKCNQHqUHt\/HLZJIJYJvdCSWpHYkHSf5xgLFefeECdqDRaV77ucj5yySr0cMcoNSj2\/IbY+ja5+V\/xmlQBDd7Hk2GHkokxxa\/7pal+THkJejdBTXcDolu7YV\/yNw6hMyOr+eGqPg2rKXFceAOUGdvrIJFxTUmDkxl\/QYSYvfXmKmPRf9IhbDWJaB\/1\/LYtdyP8IXhXDtiXJskcYyz60bAbF\/aNfBz2LqTmyOvmiS8U2MqZO\/h9yuruIwinnNwKPjrMufG1qj\/mWdW7tbb7VpQBtn5nl\/MZD4INI4utYX8mkM8Y750gpGH4QNei2PgDTq4alD8NMmuEplnj9XfGyVINRlFgpIxUoqjqQC+wHbLSdSxiMGY0tqsNiW0I7vOT9n8RGRwCPPm6TmuDswATcgz2SVP558xdPuOpLhkgQazNR1LQUEzUHuN29TN1mmVP7X5WW11LnYRG4KhkgYCkXcTYJAVyzqwq5KF2VHr08hLw4L4jzL7rdXvSKBsC9fHsHWPxRazqVeUX07+NlhjX9+6T1maaUga0lkjAThHes\/puNzeSEmgeLpQC82zSKOUl4AZQVVhQQnqpVghSpB8Bde0NWfugDMQPbvYDgYvVpbSB1lurP1\/d9dmfNl2LjzI='
 
-	print aes_decrypt(string, passwd)
+	print aes_cbc_decrypt(string, passwd)
 
 def aes_cbc_decrypt(string, passwd):
 	#declaire
@@ -47,6 +48,9 @@ def aes_cbc_decrypt(string, passwd):
 #session = requests.session()
 #return file_name_downloaded
 def download_file(url, fileName='', session=''):
+	if not re.search('://(www\.)?(.+)\..*?/', url):
+		return show_error('download_file ERROR: URL wrong!!')
+
 	local_filename = fileName if fileName else url.split('/')[-1]
 	# NOTE the stream=True parameter
 	
@@ -63,23 +67,60 @@ def download_file(url, fileName='', session=''):
 		print format(err)
 		return ''
 #jsonData must be dict
-#return url by quality (<=0:'highest' - x - esle; dict{quality:url})
-def get_url(jsonData, keyQuality, keyUrl, quality='all'):
-	if not isinstance(jsonData, list) and not isinstance(jsonData, tuple):
+#return url by quality (<=0:'highest' - x - else; dict{quality:url})
+def get_url(jsonData, keyQuality, keyUrl, option={}):
+	if (not isinstance(jsonData, list)) and (not isinstance(jsonData, tuple)):
+		if isinstance(jsonData, dict):
+			if keyUrl in jsonData:
+				return jsonData[keyUrl]
+		if isinstance(jsonData, str):
+			return jsonData
 		return ''
+
+
+	#default
+	title = ''
+	quality = 'all'
+	funcDecryptUrl = ''
+	keyDecryptUrl = ''
+	if option and isinstance(option, dict):
+		if 'title' in option:
+			title = option['title']
+		if 'quality' in option:
+			quality = option['quality']
+
+		if 'funcDecryptUrl' in option:
+			funcDecryptUrl = option['funcDecryptUrl']  if (option['funcDecryptUrl'] in globals()) else ''
+		if 'keyDecryptUrl' in option:
+			keyDecryptUrl = option['keyDecryptUrl']
 
 	ret = {}
 	for item in jsonData:
-		if isinstance(item, dict) and keyQuality in item and keyUrl in item:
+		if isinstance(item, dict) and (keyQuality in item) and (keyUrl in item):
 			q = item[keyQuality]
 			if isinstance(q, str) and re.search('\d+', q):
 				q = re.search('\d+', q).group(0)
+			url  = item[keyUrl]
+			#check encrypt url
+			if funcDecryptUrl:
+				if keyDecryptUrl:
+					url = eval(funcDecryptUrl)(url, keyDecryptUrl)
+				else:
+					url = eval(funcDecryptUrl)(url)
+			url = ''.join( re.findall('^[\w:/\.?=&%-]+', url) )
+			#new title		
+			if title:
+				newTitle = urllib.quote_plus(title + '_[' + str(item[keyQuality]) + ']')
+				match = re.search('&title=(.*?)(&)', url)
+				if match:
+					url = url.replace(match.group(1),newTitle)
+				else:
+					url += '&title=' + newTitle
+			ret[int(q)] = url
 
-			ret[int(q)] = item[keyUrl]
 	if not ret:
 		return ''
 
-		
 	if isinstance(quality, int):
 		if quality <= 0:
 			return ret[max(ret.keys())]
@@ -108,6 +149,7 @@ def remove(path):
 def show_error(errorLog):
 	print errorLog
 	return ''
+
 #try to show with no error
 def show_image(path):
 	try:
